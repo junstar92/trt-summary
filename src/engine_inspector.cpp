@@ -1,94 +1,10 @@
 #include <inspector.h>
+#include <json.h>
 #include <iostream>
 #include <fstream>
 #include <vector>
 #include <sstream>
 #include <algorithm>
-class EngineInfoJsonParser
-{
-    using PV = nvinfer1::ProfilingVerbosity;
-public:
-    explicit EngineInfoJsonParser(const char* raw_json, const PV pv) {
-        std::string json{raw_json};
-        if (pv == PV::kDETAILED) { // detailed
-            int idx = 0;
-            auto get_str = [&json](int& idx) {
-                while (json[idx] != '"') idx++;
-                idx++;
-                int end_idx = idx;
-                while (json[end_idx] != '"') end_idx++;
-                std::string key = json.substr(idx, end_idx - idx);
-                idx = end_idx + 1;
-                return key;
-            };
-            while (idx < json.length()) {
-                if (json[idx] == '{') {
-                    idx++;
-                    if (json.substr(idx + 1, 6).compare("Layers") == 0) {
-                        // get layer info
-                        while (idx < json.length()) {
-                            if (json[idx] == '{') {
-                                EngineLayerInfo layer_info;
-                                while (get_str(idx).compare("Name") != 0);
-                                layer_info.name = get_str(idx);
-
-                                while (get_str(idx).compare("LayerType") != 0);
-                                layer_info.type = get_str(idx);
-
-                                while (get_str(idx).compare("Outputs") != 0);
-                                while (json[idx] != ']') {
-                                    while (get_str(idx).compare("Dimensions") != 0);
-                                    idx += 2;
-                                    int end_idx = idx;
-                                    while (json[end_idx] != ']') end_idx++;
-                                    layer_info.dims.push_back(json.substr(idx, end_idx - idx + 1));
-                                    idx = end_idx + 1;
-                                    while (json[idx] != '}') idx++;
-                                    idx++;
-                                }
-                                while (json[idx] != '}' || json[idx + 1] != ',' || json[idx + 2] != '{') {
-                                    idx++;
-                                    if (idx + 2 >= json.length()) break;
-                                }
-                                layer_info_.push_back(layer_info);
-                                idx++;
-                            }
-                            idx++;
-                        }
-                    }
-                }
-                idx++;
-            }
-        }
-        else { // layer-name-only
-            int idx = 0;
-            std::string layer_name;
-            while (idx < json.length()) {
-                if (json[idx] == '[') {
-                    idx++;
-                    while (json[idx] != ']') {
-                        if (json[idx] == '"') {
-                            int find_idx = idx + 1;
-                            while (json[find_idx] != '"') find_idx++;
-                            layer_name = json.substr(idx + 1, find_idx - idx - 1);
-                            layer_info_.push_back({layer_name});
-                            idx = find_idx;
-                        }
-                        idx++;
-                    }
-                }
-                idx++;
-            }
-        }
-    }
-
-    const std::vector<EngineLayerInfo>& getLayerInfo() const {
-        return layer_info_;
-    }
-
-private:
-    std::vector<EngineLayerInfo> layer_info_;
-};
 
 bool EngineInspector::parsing()
 {
@@ -121,17 +37,50 @@ void EngineInspector::summary(std::ostream& os)
 {
     using Severity = nvinfer1::ILogger::Severity;
     std::stringstream ss;
-    // query layer infomation (WIP)
+    // query layer infomation
     auto profiling_verbosity = engine_->getProfilingVerbosity();
     if (profiling_verbosity != nvinfer1::ProfilingVerbosity::kNONE) {
         auto inspector = engine_->createEngineInspector();
-        const int num_layer = engine_->getNbLayers();
-        const char* engine_info_json = inspector->getEngineInformation(nvinfer1::LayerInformationFormat::kJSON);
-        auto json_parser = EngineInfoJsonParser(engine_info_json, profiling_verbosity);
-        ss.str("");
-        ss << json_parser.getLayerInfo();
-        os << "> Engine Layer Summary:\n";
-        os << ss.str();
+        auto json_contents = inspector->getEngineInformation(nvinfer1::LayerInformationFormat::kJSON);
+        Json::Reader reader;
+        Json::Value root;
+
+        bool success = reader.parse(json_contents, root, false);
+        if (success) {
+            Json::Value layers = root["Layers"];
+            auto num_of_layer = layers.size();
+            std::vector<EngineLayerInfo> engine_layer_info(num_of_layer);
+            auto dims_to_str = [](auto& dims_object) {
+                std::string ret = "[";
+                auto size = dims_object.size();
+                for (int i = 0; i < size; i++) {
+                    ret += std::to_string(dims_object[i].asInt()) + ",";
+                }
+                ret[ret.length() - 1] = ']';
+                return ret;
+            };
+            for (unsigned int i = 0; i < num_of_layer; i++) {
+                auto& layer = layers[i];
+                if (layer.isObject()) {
+                    engine_layer_info[i].name = layer["Name"].asString();
+                    engine_layer_info[i].type = layer["LayerType"].asString();
+                    auto num_of_outputs = layer["Outputs"].size();
+                    for (unsigned int j = 0; j < num_of_outputs; j++) {
+                        engine_layer_info[i].dims.push_back(dims_to_str(layer["Outputs"][j]["Dimensions"]));
+                    }
+                }
+                else {
+                    engine_layer_info[i].name = layer.asString();
+                }
+            }
+            ss.str("");
+            ss << engine_layer_info;
+            os << "> Engine Layer Summary:\n";
+            os << ss.str();
+        }
+        else {
+            logger_.log(Severity::kERROR, "Failed to parse json contents.");
+        }
     }
     else {
         logger_.log(Severity::kWARNING, "Skip layer summary (Profiling Verbosity of the Engine: NONE)");

@@ -37,6 +37,7 @@ add_executable(${PROJECT_NAME}
     src/main.cpp
     src/engine_inspector.cpp
     src/onnx_inspector.cpp
+    src/jsoncpp.cpp
 )
 target_include_directories(${PROJECT_NAME}
     PUBLIC
@@ -49,4 +50,8 @@ target_link_libraries(${PROJECT_NAME}
         ${TRT_nvinfer_LIBRARY}
         ${TRT_nvonnxparser_LIBRARY}
         ${CUDA_RUNTIME_LIBRARY}
+)
+set_target_properties(trtsummary
+    PROPERTIES
+        CXX_STANDARD 14
 )

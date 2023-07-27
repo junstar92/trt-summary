@@ -43,7 +43,7 @@ int main(int argc, char** argv)
         }
     }
 
-    gLogger.log(nvinfer1::ILogger::Severity::kINFO, "----------------------------------------------------------------");
+    gLogger.log(nvinfer1::ILogger::Severity::kINFO, "-------------------------------------------------------------------------------------");
     gLogger.log(nvinfer1::ILogger::Severity::kINFO, std::string("Filename : " + file_path).c_str());
     std::string format_str{};
     if (format == Format::kONNX) {
@@ -56,7 +56,7 @@ int main(int argc, char** argv)
         format_str = "unknown";
     }
     gLogger.log(nvinfer1::ILogger::Severity::kINFO, std::string("Format   : " + format_str).c_str());
-    gLogger.log(nvinfer1::ILogger::Severity::kINFO, "----------------------------------------------------------------");
+    gLogger.log(nvinfer1::ILogger::Severity::kINFO, "-------------------------------------------------------------------------------------");
 
     std::unique_ptr<IInspector> inspector{createInspector(file_path, format, gLogger)};
 
